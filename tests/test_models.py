@@ -27,7 +27,7 @@ import os
 import logging
 import unittest
 from decimal import Decimal
-from service.models import Product, Category, db
+from service.models import Product, Category, DataValidationError, db
 from service import app
 from tests.factories import ProductFactory
 
@@ -192,4 +192,93 @@ class TestProductModel(unittest.TestCase):
         self.assertEqual(found.count(), count)
         for product in found:
             self.assertEqual(product.category, category)
+
+    def test_find_by_price(self):
+        """It should Find Products by Price"""
+        # Create products with different prices
+        product1 = ProductFactory(price=Decimal("19.99"))
+        product2 = ProductFactory(price=Decimal("29.99"))
+        product3 = ProductFactory(price=Decimal("19.99"))  # Same price as product1
+
+        product1.create()
+        product2.create()
+        product3.create()
+
+        # Query for products by price
+        found_products_query = Product.find_by_price(Decimal("19.99"))
+        self.assertEqual(found_products_query.count(), 2)  # Should return 2 products
+        found_products = found_products_query.all()
+        for product in found_products:
+            self.assertEqual(product.price, Decimal("19.99"))
+
+        # Query for a price not in the database
+        found_products_query = Product.find_by_price(Decimal("9.99"))
+        self.assertEqual(found_products_query.count(), 0)  # Should return no products
+
+        # Test with string input for price
+        found_products_query = Product.find_by_price("29.99")
+        found_products = found_products_query.all()
+        self.assertEqual(len(found_products), 1)  # Should find product2
+        self.assertEqual(found_products[0].price, Decimal("29.99"))
+
+    
+    def test_deserialize_valid_data(self):
+        """It should Deserialize a Product with valid data"""
+        data = {
+            "name": "Laptop",
+            "description": "High performance laptop",
+            "price": "1200.50",
+            "available": True,
+            "category": "TOOLS"
+        }
+        product = Product()
+        product.deserialize(data)
+        self.assertEqual(product.name, "Laptop")
+        self.assertEqual(product.description, "High performance laptop")
+        self.assertEqual(product.price, Decimal("1200.50"))
+        self.assertTrue(product.available)
+        self.assertEqual(product.category, Category.TOOLS)
+
+    def test_deserialize_missing_field(self):
+        """It should raise a DataValidationError when a required field is missing"""
+        data = {
+            "name": "Laptop",
+            "description": "High performance laptop",
+            "price": "1200.50",
+            # Missing 'available' field
+            "category": "TOOLS"
+        }
+        product = Product()
+        with self.assertRaises(DataValidationError) as context:
+            product.deserialize(data)
+        self.assertIn('Invalid product: missing available', str(context.exception))
+
+    def test_deserialize_invalid_available_type(self):
+        """It should raise a DataValidationError for invalid 'available' type"""
+        data = {
+            "name": "Laptop",
+            "description": "High performance laptop",
+            "price": "1200.50",
+            "available": "yes",  # Invalid type
+            "category": "TOOLS"
+        }
+        product = Product()
+        with self.assertRaises(DataValidationError) as context:
+            product.deserialize(data)
+        self.assertIn("Invalid type for boolean [available]", str(context.exception))
+
+    def test_deserialize_invalid_category(self):
+        """It should raise a DataValidationError for invalid category data"""
+        data = {
+            "name": "Laptop",
+            "description": "High performance laptop",
+            "price": "1200.50",
+            "available": True,
+            "category": "WRONG"  # Invalid category
+        }
+        product = Product()
+        with self.assertRaises(DataValidationError) as context:
+            product.deserialize(data)
+        self.assertIn("Invalid attribute", str(context.exception))
+
             
